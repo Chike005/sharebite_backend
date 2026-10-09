@@ -36,7 +36,8 @@ DJANGO_DEBUG=true python manage.py makemigrations --check --dry-run
 
 Tests cover donation details, reservation/cancellation, password updates,
 workflow state protection, collection-point selection and receipt confirmation,
-permissions, health and image uploads.
+staff and non-staff approval permissions, registration role protection, health
+and image uploads.
 
 ## Production deployment
 
@@ -87,6 +88,9 @@ before accepting public uploads. No provider or live deployment is configured ye
 
 All routes have the `/api/` prefix. Authenticate using
 `Authorization: Token <token>` from the login response.
+The login response includes `is_staff`; public registration cannot grant staff
+or superuser access. Staff users can confirm donations as received at their
+selected collection point. Django Admin remains available at `/admin/`.
 
 | Route | Methods | Purpose |
 | --- | --- | --- |
@@ -127,6 +131,14 @@ Donation creation accepts an optional `food_image` multipart upload (JPG, PNG
 or WebP; maximum 5 MB). It is separate from the donor's later proof-of-donation
 upload and is returned with donation details. Optional quantity and best-before
 date are also saved as donation details.
+
+### Staff dashboard setup
+
+Create a staff account with `python manage.py createsuperuser` for local
+dashboard testing, then sign in to the frontend with that account. The
+collection-point confirmation endpoint and donation status update endpoint
+require an authenticated staff user. A non-staff account may register and use
+donor/receiver features but cannot open the admin dashboard or confirm receipt.
 
 ## Portfolio preparation
 

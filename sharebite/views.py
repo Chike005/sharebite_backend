@@ -75,6 +75,7 @@ class LoginView(ObtainAuthToken):
                 'last_name': user.last_name,
                 'is_donor': getattr(user, 'is_donor', False),
                 'is_receiver': getattr(user, 'is_receiver', False),
+                'is_staff': user.is_staff,
             }
             return Response(data=user_data, status=status.HTTP_200_OK)
 

@@ -153,6 +153,54 @@ class DonationWorkflowTests(APITestCase):
         self.assertEqual(response.data['collection_status'], 'received_at_collection_point')
         self.assertEqual(self.client.post(self.url('confirm-receipt/')).status_code, 200)
 
+    def test_staff_can_confirm_and_non_staff_cannot_confirm_or_reserve_early(self):
+        staff = User.objects.create_user(
+            username='staff',
+            password='Original-Pass-839!',
+            is_staff=True,
+        )
+        self.assertEqual(self.client.post(self.url('confirm-receipt/')).status_code, 403)
+        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 404)
+
+        self.client.force_authenticate(staff)
+        response = self.client.post(self.url('confirm-receipt/'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['collection_status'], 'received_at_collection_point')
+
+        self.client.force_authenticate(self.receiver)
+        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 200)
+
+    def test_registration_cannot_grant_staff_access_and_login_returns_staff_flag(self):
+        response = self.client.post('/api/register/', {
+            'username': 'new-user',
+            'password': 'Original-Pass-839!',
+            'is_staff': True,
+            'is_superuser': True,
+        })
+        self.assertEqual(response.status_code, 201, response.data)
+        new_user = User.objects.get(username='new-user')
+        self.assertFalse(new_user.is_staff)
+        self.assertFalse(new_user.is_superuser)
+
+        User.objects.create_user(
+            username='staff',
+            password='Original-Pass-839!',
+            is_staff=True,
+        )
+        login_response = self.client.post('/api/login/', {
+            'username': 'staff',
+            'password': 'Original-Pass-839!',
+        })
+        self.assertEqual(login_response.status_code, 200)
+        self.assertTrue(login_response.data['is_staff'])
+
+        non_staff_response = self.client.post('/api/login/', {
+            'username': self.receiver.username,
+            'password': 'Original-Pass-839!',
+        })
+        self.assertEqual(non_staff_response.status_code, 200)
+        self.assertFalse(non_staff_response.data['is_staff'])
+
     def test_unauthenticated_collection_point_list_is_rejected(self):
         self.client.force_authenticate(None)
         self.assertEqual(self.client.get('/api/collection-points/').status_code, 401)

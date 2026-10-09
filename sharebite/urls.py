@@ -8,7 +8,8 @@ from .views import (
                     DropOffSiteView, ReserveDonationView, EditUserView,
                     ResetPasswordView, UpdateDonationStatusView,
                     UserDonationsView, UserReservedDonationsView,
-                    CollectionPointListView, ConfirmCollectionPointReceiptView)
+                    CollectionPointListView, ConfirmCollectionPointReceiptView,
+                    AvailableDonationListView)
 
 
 urlpatterns = [
@@ -19,6 +20,8 @@ urlpatterns = [
     path('members/', NonAdminUserListView.as_view(), name='non-admin-users'),
     # Donations
     path('donations/', DonationListView.as_view(), name='donation-list'),
+    path('donations/available/', AvailableDonationListView.as_view(),
+         name='available-donation-list'),
     path('donations/<int:pk>/status/', UpdateDonationStatusView.as_view(),\
           name='update-donation-status'),
     path('donations/<int:donation_id>/confirm-receipt/',

@@ -14,7 +14,8 @@ from rest_framework.authtoken.models import Token
 from .models import Receipt, Donation, DropOffsite, User, DropoffLocation
 from .serializers import (
      ReceiptSerializer, UserSerializer, DonationSerializer, ProofSerializer,
-     DropOffSiteSerializer, CollectionPointSerializer)
+     DropOffSiteSerializer, CollectionPointSerializer,
+     AvailableDonationSerializer)
 
 
 logger = logging.getLogger(__name__)
@@ -114,9 +115,16 @@ class ResetPasswordView(APIView):
 # Donation Views
 class DonationListView(APIView):
     """ Donations APIVIEWs"""
+    def get_permissions(self):
+        if self.request.method in ('GET', 'HEAD'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
     def get(self, request):
         """ Get all donations"""
-        donations = Donation.objects.all() # pylint: disable=no-member
+        donations = Donation.objects.select_related(
+            'donor', 'reserved_by', 'collection_point',
+        ).all() # pylint: disable=no-member
         serializer = DonationSerializer(donations, many=True, context={'request': request})
         return Response(serializer.data)
     def post(self, request):
@@ -134,12 +142,53 @@ class DonationListView(APIView):
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class AvailableDonationListView(APIView):
+    """List only received, unreserved donations to authenticated receivers."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_receiver:
+            return Response(
+                {'detail': 'Only receiver accounts can browse available donations.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        donations = Donation.objects.select_related(
+            'donor', 'collection_point',
+        ).filter(
+            is_reserved=False,
+            is_delivered=False,
+            collection_status='received_at_collection_point',
+        ).order_by('-created_at')
+        serializer = AvailableDonationSerializer(
+            donations,
+            many=True,
+            context={'request': request},
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 # Donation Detail View
 class DonationDetailView(APIView):
     """ Retrieve donations detail """
     def get(self, request, donation_id):
         """  get a particular donation """
-        donation = get_object_or_404(Donation, pk=donation_id)
+        donation = get_object_or_404(
+            Donation.objects.select_related(
+                'donor', 'reserved_by', 'collection_point',
+            ),
+            pk=donation_id,
+        )
+        user = request.user
+        can_view = (
+            user.is_staff
+            or donation.donor_id == user.id
+            or donation.reserved_by_id == user.id
+        )
+        if not can_view:
+            return Response(
+                {'detail': 'Donation not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         serializer = DonationSerializer(donation, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -215,10 +264,8 @@ class UserDonationsView(APIView):
 
 # Admin Drop-Off Sites View
 class DropOffSiteView(APIView):
-    """ DropOff sites """
-
-    def get_permissions(self):
-        return [IsAuthenticated()] if self.request.method == 'GET' else [IsAdminUser()]
+    """Staff-only management of drop-off sites and their member details."""
+    permission_classes = [IsAdminUser]
 
     def post(self, request):
         """ Addd a new site """
@@ -248,6 +295,12 @@ class ReserveDonationView(APIView):
     @transaction.atomic
     def post(self, request, donation_id):
         """ reserve a particular donation """
+        if not request.user.is_receiver:
+            return Response(
+                {'error': 'Only receiver accounts can reserve donations.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
             donation = Donation.objects.select_for_update().get(
                 pk=donation_id,

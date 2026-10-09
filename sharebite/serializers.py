@@ -39,11 +39,17 @@ class UserSerializer(serializers.ModelSerializer):
         user.save()
         return user
 class LimitedUserSerializer(serializers.ModelSerializer):
-    """Custom serializer with conditional fields"""
+    """Small user details included in donation records."""
     class Meta:
         """ Needed field """
         model = User
         fields = ['id', 'email', 'first_name', 'last_name']
+
+class PublicUserSerializer(serializers.ModelSerializer):
+    """Expose only a donor's display name on receiver browse results."""
+    class Meta:
+        model = User
+        fields = ['id', 'first_name', 'last_name']
 
 class ProofSerializer(serializers.ModelSerializer):
     """ Proof Serializer """
@@ -134,6 +140,23 @@ class DonationSerializer(serializers.ModelSerializer):
         if obj.receipt:
             return request.build_absolute_uri(obj.receipt.url)
         return None
+
+class AvailableDonationSerializer(serializers.ModelSerializer):
+    """Donation fields receivers need to assess an available collection-point donation."""
+    donor = PublicUserSerializer(read_only=True)
+    collection_point_details = CollectionPointSerializer(
+        source='collection_point',
+        read_only=True,
+    )
+
+    class Meta:
+        model = Donation
+        fields = [
+            'id', 'donor', 'title', 'description', 'food_image', 'quantity',
+            'expiry_date', 'location', 'is_reserved', 'is_delivered',
+            'created_at', 'status', 'collection_point', 'collection_point_details',
+            'collection_status',
+        ]
 
 class DropOffSiteSerializer(serializers.ModelSerializer):
     """ Drop Serializer """

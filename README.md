@@ -100,9 +100,9 @@ selected collection point. Django Admin remains available at `/admin/`.
 | `edituser/` | PUT, PATCH | Edit current user; validates and hashes passwords |
 | `resetpassword/` | PUT | Change password using current password |
 | `members/` | GET | Administrator-only member list |
-| `donations/` | GET, POST | List and create donations |
+| `donations/` | GET, POST | Staff-only donation list; authenticated donation creation |
+| `donations/available/` | GET | Receiver-only list of received, unreserved donations; omits donor email, proof and receipt |
 | `collection-points/` | GET | List the staffed collection points |
-| `donations/mine/` | GET | Current user's donations |
 | `donations/reserved/` | GET | Current user's reservations |
 | `donations/<id>/` | GET | Donation details |
 | `donations/<id>/status/` | PUT, PATCH | Administrator updates status |
@@ -112,7 +112,7 @@ selected collection point. Django Admin remains available at `/admin/`.
 | `donations/<id>/proof/` | POST | Donor/admin image proof; multipart `proof_image` |
 | `donations/<id>/receipt/` | POST | Reserved receiver's receipt; multipart `proof_image` |
 | `receipts/` | GET | Current user's receipts |
-| `dropoff-sites/` | GET, POST | Authenticated users list sites; admins create them |
+| `dropoff-sites/` | GET, POST | Staff-only site management |
 
 Proofs and receipts take donation/user relations from the authenticated request
 and URL. Donation state fields are read-only during creation. Reservations are

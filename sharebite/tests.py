@@ -30,8 +30,87 @@ class DonationWorkflowTests(APITestCase):
         return f'/api/donations/{self.donation.pk}/{suffix}'
 
     def test_detail_and_health(self):
+        self.client.force_authenticate(self.donor)
         self.assertEqual(self.client.get(self.url()).status_code, 200)
         self.assertEqual(self.client.get('/api/health/').json(), {'status': 'ok'})
+
+    def test_all_donations_list_is_staff_only(self):
+        self.assertEqual(self.client.get('/api/donations/').status_code, 403)
+        self.assertEqual(self.client.head('/api/donations/').status_code, 403)
+        self.client.force_authenticate(self.donor)
+        self.assertEqual(self.client.get('/api/donations/').status_code, 403)
+        self.client.force_authenticate(self.admin)
+        response = self.client.get('/api/donations/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+
+    def test_available_donations_are_receiver_only_and_redacted(self):
+        eligible = Donation.objects.create(
+            donor=self.donor,
+            title='Available lentils',
+            description='A sealed bag of lentils.',
+            location=self.collection_point.address,
+            collection_point=self.collection_point,
+            collection_status='received_at_collection_point',
+        )
+        Donation.objects.create(
+            donor=self.donor,
+            title='Not yet received',
+            description='Still awaiting drop-off.',
+            location=self.collection_point.address,
+            collection_point=self.collection_point,
+        )
+        Donation.objects.create(
+            donor=self.donor,
+            title='Already reserved',
+            description='Reserved test donation.',
+            location=self.collection_point.address,
+            collection_point=self.collection_point,
+            collection_status='received_at_collection_point',
+            is_reserved=True,
+            reserved_by=self.other,
+        )
+        Donation.objects.create(
+            donor=self.donor,
+            title='Already delivered',
+            description='Delivered test donation.',
+            location=self.collection_point.address,
+            collection_point=self.collection_point,
+            collection_status='received_at_collection_point',
+            is_delivered=True,
+        )
+
+        response = self.client.get('/api/donations/available/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item['id'] for item in response.data], [eligible.pk])
+        self.assertNotIn('email', response.data[0]['donor'])
+        self.assertNotIn('reserved_by', response.data[0])
+        self.assertNotIn('proof', response.data[0])
+        self.assertNotIn('receipt', response.data[0])
+
+        self.client.force_authenticate(self.donor)
+        self.assertEqual(self.client.get('/api/donations/available/').status_code, 403)
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get('/api/donations/available/').status_code, 403)
+
+    def test_donation_detail_is_limited_to_staff_owner_or_reserving_receiver(self):
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+
+        self.client.force_authenticate(self.donor)
+        self.assertEqual(self.client.get(self.url()).status_code, 200)
+
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get(self.url()).status_code, 200)
+
+        self.donation.collection_status = 'received_at_collection_point'
+        self.donation.is_reserved = True
+        self.donation.reserved_by = self.receiver
+        self.donation.save(
+            update_fields=['collection_status', 'is_reserved', 'reserved_by'],
+        )
+        self.client.force_authenticate(self.receiver)
+        self.assertEqual(self.client.get(self.url()).status_code, 200)
 
     def test_reservation_cancel_and_repeated_reservation(self):
         self.assertEqual(self.client.post(self.url('reserve/')).status_code, 404)
@@ -39,8 +118,9 @@ class DonationWorkflowTests(APITestCase):
         self.assertEqual(self.client.post(self.url('confirm-receipt/')).status_code, 200)
         self.client.force_authenticate(self.receiver)
         self.assertEqual(self.client.post(self.url('reserve/')).status_code, 200)
-        self.client.force_authenticate(self.other)
         self.assertEqual(self.client.post(self.url('reserve/')).status_code, 404)
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 403)
         self.assertEqual(self.client.post(self.url('cancel/')).status_code, 404)
         self.client.force_authenticate(self.receiver)
         self.assertEqual(self.client.post(self.url('cancel/')).status_code, 200)
@@ -52,7 +132,15 @@ class DonationWorkflowTests(APITestCase):
         self.donation.collection_status = 'received_at_collection_point'
         self.donation.save(update_fields=['collection_status'])
         self.client.force_authenticate(self.donor)
-        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 400)
+        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 403)
+
+    def test_only_receivers_can_reserve_received_donations(self):
+        self.donation.collection_status = 'received_at_collection_point'
+        self.donation.save(update_fields=['collection_status'])
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 403)
+        self.client.force_authenticate(self.receiver)
+        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 200)
 
     def test_delivered_donation_cannot_be_reserved(self):
         self.donation.is_delivered = True
@@ -213,8 +301,10 @@ class DonationWorkflowTests(APITestCase):
 
     def test_member_list_and_dropoff_permissions(self):
         self.assertEqual(self.client.get('/api/members/').status_code, 403)
-        self.assertEqual(self.client.get('/api/dropoff-sites/').status_code, 200)
+        self.assertEqual(self.client.get('/api/dropoff-sites/').status_code, 403)
         self.assertEqual(self.client.post('/api/dropoff-sites/', {'location':'Manchester'}).status_code, 403)
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get('/api/dropoff-sites/').status_code, 200)
 
     def test_uploads_only_allowed_for_donation_participants(self):
         self.assertEqual(self.client.post(self.url('proof/'), {}).status_code, 403)

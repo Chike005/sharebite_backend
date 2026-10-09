@@ -1,5 +1,6 @@
 # ShareBite API
 
+Backend API for the ShareBite application.
 Django REST backend for a food donation platform with authentication, donations,
 staffed collection points, reservations, delivery proof, receipts and
 administrator-managed drop-off sites.

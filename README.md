@@ -26,6 +26,34 @@ SQLite is used for local development only. New uploads live under `media/`.
 If migrating an existing database, copy existing `proofs/` and `receipts/` folders
 into `media/` before using it. Do not publish real user data in a portfolio demo.
 
+### Local demo walkthrough
+
+After applying migrations, seed clearly labeled sample accounts and donations:
+
+```bash
+DJANGO_DEBUG=true python manage.py seed_demo
+```
+
+The command refuses to run unless `DJANGO_DEBUG=true`. It creates a staff
+account, a donor account, a receiver account, one donation awaiting staff
+confirmation and one already available to reserve. It is repeatable and does
+not reset donations that have already been used in a walkthrough.
+
+The command prints a newly generated password shared by all three accounts:
+
+| Role | Username |
+| --- | --- |
+| Staff | `demo-staff` |
+| Donor | `demo-donor` |
+| Receiver | `demo-receiver` |
+
+Use the donor account to submit a donation at **Ancoats Share Hub**, then sign
+in as staff and confirm it from the dashboard. Sign in as the receiver to
+reserve the newly received donation and upload a pickup receipt from
+**Reservations**. The pre-seeded bakery bundle is available to reserve
+immediately. These accounts and donations are for local demonstration only;
+never use demo accounts or the seed command in a public deployment.
+
 ## Checks
 
 ```bash
@@ -37,7 +65,8 @@ DJANGO_DEBUG=true python manage.py makemigrations --check --dry-run
 Tests cover donation details, reservation/cancellation, password updates,
 workflow state protection, collection-point selection and receipt confirmation,
 staff and non-staff approval permissions, registration role protection, health
-and image uploads.
+and image uploads. They also cover the complete donation handoff and the
+debug-only demo seed command.
 
 ## Production deployment
 

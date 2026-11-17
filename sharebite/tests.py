@@ -1,6 +1,10 @@
 import io
 import tempfile
+from io import StringIO
 from PIL import Image
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import TestCase
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APITestCase
@@ -33,6 +37,61 @@ class DonationWorkflowTests(APITestCase):
         self.client.force_authenticate(self.donor)
         self.assertEqual(self.client.get(self.url()).status_code, 200)
         self.assertEqual(self.client.get('/api/health/').json(), {'status': 'ok'})
+
+    def test_complete_donation_handoff(self):
+        self.client.force_authenticate(self.donor)
+        response = self.client.post('/api/donations/', {
+            'title': 'Demo journey donation',
+            'description': 'A box of seasonal produce.',
+            'quantity': 6,
+            'expiry_date': '2030-01-01',
+            'location': self.collection_point.address,
+            'collection_point': self.collection_point.pk,
+        }, format='json')
+        self.assertEqual(response.status_code, 201)
+        donation_id = response.data['id']
+        self.assertEqual(response.data['collection_status'], 'awaiting_dropoff')
+
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(
+            f'/api/donations/{donation_id}/confirm-receipt/'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data['collection_status'],
+            'received_at_collection_point',
+        )
+
+        self.client.force_authenticate(self.receiver)
+        response = self.client.get('/api/donations/available/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(donation_id, [item['id'] for item in response.data])
+        self.assertEqual(
+            self.client.post(f'/api/donations/{donation_id}/reserve/').status_code,
+            200,
+        )
+
+        with tempfile.TemporaryDirectory() as media, override_settings(MEDIA_ROOT=media):
+            response = self.client.post(
+                f'/api/donations/{donation_id}/receipt/',
+                {'proof_image': self._png_upload()},
+                format='multipart',
+            )
+            self.assertEqual(response.status_code, 201, response.data)
+            donation = Donation.objects.get(pk=donation_id)
+            self.assertEqual(donation.reserved_by, self.receiver)
+            self.assertTrue(donation.is_reserved)
+            self.assertEqual(donation.receipt.user, self.receiver)
+
+    @staticmethod
+    def _png_upload():
+        content = io.BytesIO()
+        Image.new('RGB', (1, 1)).save(content, format='PNG')
+        return SimpleUploadedFile(
+            'demo-receipt.png',
+            content.getvalue(),
+            content_type='image/png',
+        )
 
     def test_all_donations_list_is_staff_only(self):
         self.assertEqual(self.client.get('/api/donations/').status_code, 403)
@@ -333,3 +392,45 @@ class DonationWorkflowTests(APITestCase):
     def test_anonymous_donation_access_rejected(self):
         self.client.force_authenticate(None)
         self.assertEqual(self.client.get('/api/donations/').status_code, 401)
+
+
+class DemoSeedCommandTests(TestCase):
+    @override_settings(DEBUG=True)
+    def test_seed_command_is_repeatable(self):
+        output = StringIO()
+        call_command('seed_demo', stdout=output)
+        first_password = output.getvalue().split('Demo password (all accounts): ')[1].splitlines()[0]
+        output = StringIO()
+        call_command('seed_demo', stdout=output)
+        second_password = output.getvalue().split('Demo password (all accounts): ')[1].splitlines()[0]
+
+        self.assertEqual(User.objects.filter(username__startswith='demo-').count(), 3)
+        self.assertEqual(Donation.objects.filter(title__startswith='Demo:').count(), 2)
+
+        staff = User.objects.get(username='demo-staff')
+        self.assertTrue(staff.is_staff)
+        self.assertFalse(staff.is_superuser)
+        self.assertNotEqual(first_password, second_password)
+        self.assertTrue(staff.check_password(second_password))
+
+        awaiting = Donation.objects.get(title='Demo: Seasonal produce box')
+        self.assertEqual(awaiting.collection_status, 'awaiting_dropoff')
+
+        available = Donation.objects.get(title='Demo: Bakery bundle')
+        self.assertEqual(
+            available.collection_status,
+            'received_at_collection_point',
+        )
+
+        self.assertTrue(
+            User.objects.get(username='demo-donor').check_password(second_password)
+        )
+        self.assertTrue(
+            User.objects.get(username='demo-receiver').check_password(second_password)
+        )
+
+    @override_settings(DEBUG=False)
+    def test_seed_command_refuses_non_debug_settings(self):
+        with self.assertRaises(CommandError):
+            call_command('seed_demo')
+        self.assertFalse(User.objects.filter(username='demo-staff').exists())

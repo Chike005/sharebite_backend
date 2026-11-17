@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework import status, permissions
 from rest_framework.authtoken.views import ObtainAuthToken
-from rest_framework.exceptions import AuthenticationFailed, NotFound
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.authtoken.models import Token
 from .models import Receipt, Donation, DropOffsite, User, DropoffLocation
 from .serializers import (
@@ -333,10 +333,6 @@ class UserReservedDonationsView(APIView):
 
         # Fetch donations reserved by this user
         reserved_donations = Donation.objects.filter(reserved_by=user,) # pylint: disable=no-member
-
-        # Check if no donations are found
-        if not reserved_donations.exists():
-            raise NotFound("You have not reserved any donations.")
 
         # Serialize the data
         serializer = DonationSerializer(reserved_donations, many=True, context={'request': request})

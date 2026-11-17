@@ -187,6 +187,20 @@ class DonationWorkflowTests(APITestCase):
         self.assertIsNone(self.donation.reserved_by)
         self.assertFalse(self.donation.is_reserved)
 
+    def test_reserved_donations_endpoint_returns_empty_list_after_cancel(self):
+        response = self.client.get('/api/donations/reserved/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, [])
+
+        self.donation.collection_status = 'received_at_collection_point'
+        self.donation.save(update_fields=['collection_status'])
+        self.assertEqual(self.client.post(self.url('reserve/')).status_code, 200)
+        self.assertEqual(self.client.post(self.url('cancel/')).status_code, 200)
+
+        response = self.client.get('/api/donations/reserved/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, [])
+
     def test_donor_cannot_reserve_own_donation(self):
         self.donation.collection_status = 'received_at_collection_point'
         self.donation.save(update_fields=['collection_status'])
